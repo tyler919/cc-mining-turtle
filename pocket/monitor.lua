@@ -192,6 +192,16 @@ local function drawTurtleDetails()
         setColor(colors.gray, colors.black)
         term.write(" (" .. fuelPercent .. "%)")
         y = y + 1
+
+        -- Show fuel items in inventory
+        if t.fuel.fuel_items and t.fuel.fuel_items > 0 then
+            setColor(colors.orange, colors.black)
+            term.setCursorPos(1, y)
+            term.write("Coal: ")
+            setColor(colors.white, colors.black)
+            term.write(tostring(t.fuel.fuel_items) .. " items")
+            y = y + 1
+        end
     end
 
     -- Inventory

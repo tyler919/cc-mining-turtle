@@ -166,8 +166,30 @@ function fuel.getStatus()
     end
 end
 
+-- Count fuel items in inventory (coal, charcoal, etc.)
+function fuel.countFuelItems()
+    local count = 0
+    local fuelItems = {}
+
+    for i = 1, 16 do
+        local item = turtle.getItemDetail(i)
+        if item then
+            turtle.select(i)
+            if turtle.refuel(0) then  -- Test if item is fuel
+                count = count + turtle.getItemCount(i)
+                fuelItems[item.name] = (fuelItems[item.name] or 0) + turtle.getItemCount(i)
+            end
+        end
+    end
+    turtle.select(1)
+
+    return count, fuelItems
+end
+
 -- Get fuel stats
 function fuel.getStats()
+    local fuelItemCount, fuelItems = fuel.countFuelItems()
+
     return {
         current = turtle.getFuelLevel(),
         limit = turtle.getFuelLimit(),
@@ -177,6 +199,8 @@ function fuel.getStats()
         collected = fuel.stats.fuel_collected,
         is_low = fuel.isLow(),
         is_critical = fuel.isCritical(),
+        fuel_items = fuelItemCount,      -- Count of fuel items in inventory
+        fuel_item_types = fuelItems,     -- Breakdown by type
     }
 end
 

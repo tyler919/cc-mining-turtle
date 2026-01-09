@@ -142,8 +142,27 @@ local function testSystems()
     print("")
 
     -- Test fuel
-    print("Fuel Level: " .. turtle.getFuelLevel())
-    print("Fuel Limit: " .. turtle.getFuelLimit())
+    local fuelLevel = turtle.getFuelLevel()
+    local fuelLimit = turtle.getFuelLimit()
+    print("Fuel Level: " .. fuelLevel .. "/" .. fuelLimit)
+
+    -- Count fuel items
+    local fuelItemCount = 0
+    for i = 1, 16 do
+        local item = turtle.getItemDetail(i)
+        if item then
+            turtle.select(i)
+            if turtle.refuel(0) then
+                fuelItemCount = fuelItemCount + turtle.getItemCount(i)
+            end
+        end
+    end
+    turtle.select(1)
+    print("Fuel Items: " .. fuelItemCount .. " (coal/etc)")
+
+    if fuelLevel == 0 then
+        print("!! NO FUEL - Use 'refuel' command !!")
+    end
 
     -- Test inventory
     print("Empty Slots: " .. inv.emptySlots())
@@ -156,13 +175,13 @@ local function testSystems()
     -- Test network
     if config.use_network then
         if net.init() then
-            print("Network: Connected")
+            print("Network: Connected (modem found)")
             net.broadcastPresence()
         else
-            print("Network: No modem")
+            print("Network: No modem attached")
         end
     else
-        print("Network: Disabled")
+        print("Network: Disabled in config")
     end
 
     -- Test GPS
@@ -171,6 +190,8 @@ local function testSystems()
         print("GPS: " .. x .. ", " .. y .. ", " .. z)
     else
         print("GPS: Not available")
+        print("  (Needs 4 GPS host computers)")
+        print("  Using dead-reckoning instead")
     end
 
     print("")
@@ -279,6 +300,31 @@ end
 local function startMining(mode)
     term.clear()
     term.setCursorPos(1, 1)
+
+    -- Check fuel before starting
+    local fuelLevel = turtle.getFuelLevel()
+    if fuelLevel == 0 then
+        print("ERROR: No fuel!")
+        print("")
+        print("Put coal in inventory and run:")
+        print("  refuel all")
+        print("")
+        print("Or put coal in slot 1 and run:")
+        print("  refuel")
+        print("")
+        print("Press any key...")
+        os.pullEvent("key")
+        return
+    elseif fuelLevel < 100 then
+        print("WARNING: Low fuel (" .. fuelLevel .. ")")
+        print("Consider refueling first.")
+        print("")
+        print("Continue anyway? (y/n)")
+        local input = read()
+        if input:lower() ~= "y" then
+            return
+        end
+    end
 
     print("Starting " .. mode .. " mining...")
     print("Press Ctrl+T to stop")
