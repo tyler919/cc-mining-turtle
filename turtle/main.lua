@@ -1,7 +1,7 @@
 -- Mining Turtle - Main Controller
 -- Full-featured mining system with remote monitoring
 
-local VERSION = "1.0.0"
+local VERSION = "1.1.0"
 
 -- Load modules
 local nav = require("nav")
@@ -68,8 +68,6 @@ local function showMenu()
 
     print("=== Mining Turtle v" .. VERSION .. " ===")
     print("")
-    print("Select mining mode:")
-    print("")
     print("1. Quarry (" .. config.width .. "x" .. config.length .. "x" .. config.depth .. ")")
     print("2. Strip Mine")
     print("3. Branch Mine")
@@ -77,10 +75,10 @@ local function showMenu()
     print("")
     print("5. Configure")
     print("6. Test Systems")
-    print("7. Exit")
+    print("7. Check Updates")
+    print("8. Exit")
     print("")
     print("Fuel: " .. turtle.getFuelLevel() .. "/" .. turtle.getFuelLimit())
-    print("")
     write("Choice: ")
 end
 
@@ -303,22 +301,46 @@ local function startMining(mode)
 
     -- Check fuel before starting
     local fuelLevel = turtle.getFuelLevel()
+
+    -- If no fuel, try to auto-refuel from inventory
     if fuelLevel == 0 then
-        print("ERROR: No fuel!")
+        print("No fuel points. Checking inventory...")
         print("")
-        print("Put coal in inventory and run:")
-        print("  refuel all")
-        print("")
-        print("Or put coal in slot 1 and run:")
-        print("  refuel")
-        print("")
-        print("Press any key...")
-        os.pullEvent("key")
-        return
-    elseif fuelLevel < 100 then
+
+        -- Try to refuel from any slot
+        local refueled = false
+        for i = 1, 16 do
+            turtle.select(i)
+            if turtle.refuel(0) then  -- Test if item is fuel
+                local count = turtle.getItemCount(i)
+                print("Found fuel in slot " .. i .. " (" .. count .. " items)")
+                turtle.refuel()  -- Refuel all from this slot
+                refueled = true
+            end
+        end
+        turtle.select(1)
+
+        fuelLevel = turtle.getFuelLevel()
+        if fuelLevel > 0 then
+            print("")
+            print("Auto-refueled! Fuel: " .. fuelLevel)
+            sleep(1)
+        else
+            print("")
+            print("ERROR: No fuel items found!")
+            print("")
+            print("Put coal/charcoal in inventory")
+            print("and try again.")
+            print("")
+            print("Press any key...")
+            os.pullEvent("key")
+            return
+        end
+    end
+
+    -- Warn if low fuel
+    if fuelLevel < 100 then
         print("WARNING: Low fuel (" .. fuelLevel .. ")")
-        print("Consider refueling first.")
-        print("")
         print("Continue anyway? (y/n)")
         local input = read()
         if input:lower() ~= "y" then
@@ -326,7 +348,10 @@ local function startMining(mode)
         end
     end
 
+    term.clear()
+    term.setCursorPos(1, 1)
     print("Starting " .. mode .. " mining...")
+    print("Fuel: " .. turtle.getFuelLevel())
     print("Press Ctrl+T to stop")
     print("")
 
@@ -381,6 +406,8 @@ local function main()
                     elseif choice == "6" then
                         testSystems()
                     elseif choice == "7" then
+                        shell.run("update")
+                    elseif choice == "8" then
                         running = false
                     end
                 end
@@ -406,6 +433,8 @@ local function main()
             elseif choice == "6" then
                 testSystems()
             elseif choice == "7" then
+                shell.run("update")
+            elseif choice == "8" then
                 running = false
             end
         end

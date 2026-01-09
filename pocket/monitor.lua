@@ -2,7 +2,7 @@
 -- Displays real-time stats and allows remote control
 
 local PROTOCOL = "MINING_NET"
-local VERSION = "1.0.1"
+local VERSION = "1.1.0"
 
 -- Debug configuration
 local DEBUG = true
@@ -126,10 +126,10 @@ local function drawHeader()
     setColor(colors.white, colors.blue)
     term.setCursorPos(1, 1)
     term.clearLine()
-    term.write(" Mining Monitor v" .. VERSION)
+    term.write(" Monitor")
 
     -- Draw turtle count from ordered list
-    local countStr = " [" .. #turtleOrder .. "]"
+    local countStr = "[" .. #turtleOrder .. "]"
     term.setCursorPos(width - #countStr + 1, 1)
     term.write(countStr)
 end
@@ -137,39 +137,36 @@ end
 -- Draw turtle list (when no turtle selected)
 local function drawTurtleList()
     setColor(colors.white, colors.black)
-    term.setCursorPos(1, 3)
-    term.write("Select Turtle:")
+    term.setCursorPos(1, 2)
+    term.write("Turtles:")
 
-    local y = 5
+    local y = 3
     -- Use ordered list for consistent numbering
     for index, id in ipairs(turtleOrder) do
-        if y > height - 2 then break end
+        if y > height - 1 then break end
         local turtle = turtles[id]
         if turtle then
-            setColor(colors.yellow, colors.black)
-            term.setCursorPos(1, y)
-            term.write(tostring(index) .. ". ")
-
-            setColor(colors.white, colors.black)
-            local displayName = turtle.name or ("Turtle " .. id)
-            -- Truncate if too long
-            if #displayName > width - 5 then
-                displayName = displayName:sub(1, width - 8) .. "..."
-            end
-            term.write(displayName)
-
-            -- Status indicator
+            -- Status indicator first
             local age = os.epoch("utc") - (turtle.last_seen or 0)
             if age < 10000 then
                 setColor(colors.lime, colors.black)
-                term.write(" *")
             elseif age < 30000 then
                 setColor(colors.orange, colors.black)
-                term.write(" ~")
             else
                 setColor(colors.red, colors.black)
-                term.write(" ?")
             end
+            term.setCursorPos(1, y)
+            term.write(tostring(index))
+
+            setColor(colors.white, colors.black)
+            term.write(".")
+
+            local displayName = turtle.name or ("T" .. id)
+            -- Truncate aggressively for small screen
+            if #displayName > width - 3 then
+                displayName = displayName:sub(1, width - 5) .. ".."
+            end
+            term.write(displayName)
 
             y = y + 1
         end
@@ -177,18 +174,18 @@ local function drawTurtleList()
 
     if #turtleOrder == 0 then
         setColor(colors.gray, colors.black)
-        term.setCursorPos(1, 5)
-        term.write("No turtles found...")
-        term.setCursorPos(1, 7)
-        term.write("Waiting for signal...")
-        term.setCursorPos(1, 9)
-        term.write("Msgs received: " .. messagesReceived)
+        term.setCursorPos(1, 3)
+        term.write("No turtles...")
+        term.setCursorPos(1, 4)
+        term.write("Waiting...")
+        term.setCursorPos(1, 6)
+        term.write("Msgs:" .. messagesReceived)
     end
 
-    -- Instructions
+    -- Compact instructions
     setColor(colors.gray, colors.black)
     term.setCursorPos(1, height)
-    term.write("[1-9]Select [R]Refresh [L]Log")
+    term.write("1-9:Sel R:Ref U:Upd")
 end
 
 -- Draw turtle details
@@ -199,34 +196,33 @@ local function drawTurtleDetails()
         return
     end
 
-    -- Name and ID
+    -- Compact name display
     setColor(colors.yellow, colors.black)
-    term.setCursorPos(1, 3)
-    term.write(t.name or "Unknown")
+    term.setCursorPos(1, 2)
+    local name = t.name or ("T" .. t.id)
+    if #name > width - 4 then
+        name = name:sub(1, width - 6) .. ".."
+    end
+    term.write(name)
     setColor(colors.gray, colors.black)
     term.write(" #" .. t.id)
 
-    local y = 5
+    local y = 3
 
-    -- Position
+    -- Position (compact)
     if t.position then
         setColor(colors.lightBlue, colors.black)
         term.setCursorPos(1, y)
-        term.write("Pos: ")
-        setColor(colors.white, colors.black)
-        term.write(string.format("%d, %d, %d",
+        term.write(string.format("X%d Y%d Z%d",
             t.position.x or 0,
             t.position.y or 0,
             t.position.z or 0))
         y = y + 1
     end
 
-    -- Fuel
+    -- Fuel (compact)
     if t.fuel then
-        setColor(colors.orange, colors.black)
         term.setCursorPos(1, y)
-        term.write("Fuel: ")
-
         local fuelPercent = t.fuel.percent or 0
         if fuelPercent < 20 then
             setColor(colors.red, colors.black)
@@ -235,31 +231,23 @@ local function drawTurtleDetails()
         else
             setColor(colors.lime, colors.black)
         end
-        term.write(tostring(t.fuel.current or 0))
+        term.write("F:" .. tostring(t.fuel.current or 0))
         setColor(colors.gray, colors.black)
-        term.write(" (" .. fuelPercent .. "%)")
-        y = y + 1
+        term.write("(" .. fuelPercent .. "%)")
 
-        -- Show fuel items in inventory
+        -- Coal count on same line if space
         if t.fuel.fuel_items and t.fuel.fuel_items > 0 then
-            setColor(colors.orange, colors.black)
-            term.setCursorPos(1, y)
-            term.write("Coal: ")
-            setColor(colors.white, colors.black)
-            term.write(tostring(t.fuel.fuel_items) .. " items")
-            y = y + 1
+            term.write(" C:" .. t.fuel.fuel_items)
         end
+        y = y + 1
     end
 
-    -- Inventory
+    -- Inventory (compact)
     if t.inventory then
-        setColor(colors.purple, colors.black)
         term.setCursorPos(1, y)
-        term.write("Inv: ")
-        setColor(colors.white, colors.black)
-
+        setColor(colors.purple, colors.black)
         local slots = 16 - (t.inventory.empty_slots or 16)
-        term.write(slots .. "/16 slots")
+        term.write("Inv:" .. slots .. "/16")
         if t.inventory.full then
             setColor(colors.red, colors.black)
             term.write(" FULL")
@@ -267,54 +255,46 @@ local function drawTurtleDetails()
         y = y + 1
     end
 
-    -- Mining stats
+    -- Mining stats (compact)
     if t.stats then
-        y = y + 1
-        setColor(colors.cyan, colors.black)
-        term.setCursorPos(1, y)
-        term.write("--- Stats ---")
-        y = y + 1
-
         setColor(colors.white, colors.black)
         term.setCursorPos(1, y)
-        term.write("Mined: " .. formatNumber(t.stats.blocks_mined or 0))
+        term.write("Mined:" .. formatNumber(t.stats.blocks_mined or 0))
         y = y + 1
 
         term.setCursorPos(1, y)
-        term.write("Ores: " .. formatNumber(t.stats.ores_found or 0))
+        term.write("Ores:" .. formatNumber(t.stats.ores_found or 0))
+        if t.stats.layers_completed and t.stats.layers_completed > 0 then
+            term.write(" L:" .. t.stats.layers_completed)
+        end
         y = y + 1
 
         if t.stats.elapsed_time then
             term.setCursorPos(1, y)
-            term.write("Time: " .. formatTime(t.stats.elapsed_time))
-            y = y + 1
-        end
-
-        if t.stats.layers_completed then
-            term.setCursorPos(1, y)
-            term.write("Layers: " .. t.stats.layers_completed)
+            setColor(colors.gray, colors.black)
+            term.write("Time:" .. formatTime(t.stats.elapsed_time))
             y = y + 1
         end
     end
 
-    -- Status message
+    -- Status message (truncated)
     if t.message then
-        y = y + 1
         setColor(colors.lightGray, colors.black)
         term.setCursorPos(1, y)
         local msg = t.message
         if #msg > width then
-            msg = msg:sub(1, width - 3) .. "..."
+            msg = msg:sub(1, width - 2) .. ".."
         end
         term.write(msg)
+        y = y + 1
     end
 
-    -- Commands footer
+    -- Compact commands footer
     setColor(colors.gray, colors.black)
     term.setCursorPos(1, height - 1)
-    term.write("[S]top [P]ause [H]ome")
+    term.write("S:Stop P:Pause H:Home")
     term.setCursorPos(1, height)
-    term.write("[B]ack [R]efresh")
+    term.write("B:Back R:Refresh")
 end
 
 -- Draw alerts
@@ -470,6 +450,10 @@ local function handleKey(key)
             end
             print("Press any key...")
             os.pullEvent("key")
+        elseif key == keys.u then
+            -- Run updater
+            debugLog("Running updater...")
+            shell.run("update")
         end
     end
 end

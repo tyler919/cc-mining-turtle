@@ -1,0 +1,20 @@
+{
+    "version": "1.1.0",
+    "date": "2025-01-09",
+    "turtle_files": [
+        "nav.lua",
+        "inv.lua",
+        "fuel.lua",
+        "safety.lua",
+        "mine.lua",
+        "net.lua",
+        "main.lua",
+        "startup.lua",
+        "exportlog.lua"
+    ],
+    "pocket_files": [
+        "monitor.lua",
+        "exportlog.lua"
+    ],
+    "changelog": "Auto-refuel fix, debug logging, compact UI, log export tool"
+}
