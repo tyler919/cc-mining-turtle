@@ -1,7 +1,7 @@
 -- Mining Turtle - Main Controller
 -- Full-featured mining system with remote monitoring
 
-local VERSION = "1.1.0"
+local VERSION = "1.3.2"
 
 -- Load modules
 local nav = require("nav")
@@ -69,14 +69,15 @@ local function showMenu()
     print("=== Mining Turtle v" .. VERSION .. " ===")
     print("")
     print("1. Quarry (" .. config.width .. "x" .. config.length .. "x" .. config.depth .. ")")
-    print("2. Strip Mine")
-    print("3. Branch Mine")
-    print("4. Vein Mine")
+    print("2. Strip Mine (2x1)")
+    print("3. Strip Mine 3x3")
+    print("4. Branch Mine")
+    print("5. Vein Mine")
     print("")
-    print("5. Configure")
-    print("6. Test Systems")
-    print("7. Check Updates")
-    print("8. Exit")
+    print("6. Configure")
+    print("7. Test Systems")
+    print("8. Check Updates")
+    print("9. Exit")
     print("")
     print("Fuel: " .. turtle.getFuelLevel() .. "/" .. turtle.getFuelLimit())
     write("Choice: ")
@@ -213,6 +214,9 @@ local function initialize()
     fuel.setReserve(config.fuel_reserve)
     fuel.setCritical(config.fuel_critical)
     print("Fuel: " .. turtle.getFuelLevel())
+
+    -- Connect nav to net for collision avoidance
+    nav.setNet(net)
 
     -- Initialize network
     if config.use_network then
@@ -361,6 +365,8 @@ local function startMining(mode)
         mine.quarry(config.width, config.length, config.depth)
     elseif mode == "strip" then
         mine.stripMine(50, 3, 3)
+    elseif mode == "strip3x3" then
+        mine.stripMine3x3(50, 8)
     elseif mode == "branch" then
         mine.branchMine(100, 10, 3)
     elseif mode == "vein" then
@@ -398,16 +404,18 @@ local function main()
                     elseif choice == "2" then
                         startMining("strip")
                     elseif choice == "3" then
-                        startMining("branch")
+                        startMining("strip3x3")
                     elseif choice == "4" then
-                        startMining("vein")
+                        startMining("branch")
                     elseif choice == "5" then
-                        configMenu()
+                        startMining("vein")
                     elseif choice == "6" then
-                        testSystems()
+                        configMenu()
                     elseif choice == "7" then
-                        shell.run("update")
+                        testSystems()
                     elseif choice == "8" then
+                        shell.run("update")
+                    elseif choice == "9" then
                         running = false
                     end
                 end
@@ -425,16 +433,18 @@ local function main()
             elseif choice == "2" then
                 startMining("strip")
             elseif choice == "3" then
-                startMining("branch")
+                startMining("strip3x3")
             elseif choice == "4" then
-                startMining("vein")
+                startMining("branch")
             elseif choice == "5" then
-                configMenu()
+                startMining("vein")
             elseif choice == "6" then
-                testSystems()
+                configMenu()
             elseif choice == "7" then
-                shell.run("update")
+                testSystems()
             elseif choice == "8" then
+                shell.run("update")
+            elseif choice == "9" then
                 running = false
             end
         end

@@ -445,6 +445,89 @@ function mine.stripMine(length, tunnelCount, spacing)
 end
 
 --[[
+    3x3 STRIP MINING
+    Creates a 3-wide by 3-tall tunnel, great for finding ores
+]]
+function mine.stripMine3x3(length, torchInterval)
+    length = length or 50
+    torchInterval = torchInterval or 8
+
+    mine.reportStatus("Starting 3x3 strip mine: " .. length .. " blocks")
+
+    local startX, startY, startZ = mine.nav.getPos()
+    local startFacing = mine.nav.facing
+
+    for i = 1, length do
+        -- Check if we need to return home
+        if mine.checkInventory() or mine.checkFuel() then
+            local returnPos = {x = mine.nav.pos.x, y = mine.nav.pos.y, z = mine.nav.pos.z}
+            local returnFacing = mine.nav.facing
+
+            mine.reportStatus("Returning home (inv/fuel)...")
+            mine.returnHome()
+            mine.nav.face(0)
+            mine.inv.dumpToChest()
+            mine.nav.turnAround()
+            mine.fuel.refuelFromChest()
+            mine.nav.turnAround()
+
+            mine.reportStatus("Returning to tunnel...")
+            mine.nav.goTo(returnPos.x, returnPos.y, returnPos.z)
+            mine.nav.face(returnFacing)
+        end
+
+        -- Dig center column (3 high)
+        mine.safeDig()           -- Center
+        mine.safeDigUp()         -- Top center
+        mine.safeDigDown()       -- Bottom center
+
+        -- Move forward
+        mine.nav.forward()
+
+        -- Dig left column (3 high)
+        mine.nav.turnLeft()
+        mine.safeDig()           -- Left center
+        mine.nav.forward()
+        mine.safeDigUp()         -- Left top
+        mine.safeDigDown()       -- Left bottom
+
+        -- Check for ores on left wall
+        mine.checkAndVeinMine()
+
+        -- Go back to center
+        mine.nav.back()
+
+        -- Dig right column (3 high)
+        mine.nav.turnAround()    -- Now facing right
+        mine.safeDig()           -- Right center
+        mine.nav.forward()
+        mine.safeDigUp()         -- Right top
+        mine.safeDigDown()       -- Right bottom
+
+        -- Check for ores on right wall
+        mine.checkAndVeinMine()
+
+        -- Go back to center and face forward
+        mine.nav.back()
+        mine.nav.turnLeft()      -- Back to original facing
+
+        -- Place torch on floor every N blocks
+        if i % torchInterval == 0 then
+            mine.placeTorch(i)
+        end
+
+        mine.stats.layers_completed = i
+    end
+
+    mine.reportStatus("3x3 strip mine complete!")
+    mine.returnHome()
+    mine.nav.face(0)
+    mine.inv.dumpToChest()
+
+    return mine.stats
+end
+
+--[[
     BRANCH MINING
     Creates a main tunnel with branches at intervals
 ]]

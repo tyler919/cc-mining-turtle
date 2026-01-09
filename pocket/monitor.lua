@@ -2,7 +2,7 @@
 -- Displays real-time stats and allows remote control
 
 local PROTOCOL = "MINING_NET"
-local VERSION = "1.1.0"
+local VERSION = "1.3.2"
 
 -- Debug configuration
 local DEBUG = true
@@ -19,17 +19,17 @@ local messagesReceived = 0
 -- Screen dimensions
 local width, height = term.getSize()
 
--- Debug logging
+-- Debug logging (file only - viewable with L key)
 local function debugLog(message)
     if not DEBUG then return end
     local timestamp = os.epoch("utc")
     local logLine = string.format("[%d] %s", timestamp, message)
     table.insert(debugLines, logLine)
-    -- Keep only last 50 lines
-    while #debugLines > 50 do
+    -- Keep only last 100 lines in memory
+    while #debugLines > 100 do
         table.remove(debugLines, 1)
     end
-    -- Write to file
+    -- Write to file (no screen output)
     local f = fs.open("monitor_debug.log", "a")
     if f then
         f.writeLine(logLine)
@@ -477,7 +477,8 @@ local function main()
         draw()
 
         -- Wait for event with timeout
-        local timer = os.startTimer(1)
+        local timer = os.startTimer(0.5)  -- Faster refresh for multi-turtle
+        local shouldRedraw = false
 
         while true do
             local event, p1, p2, p3 = os.pullEvent()
@@ -486,7 +487,9 @@ local function main()
                 local senderId, message, protocol = p1, p2, p3
                 if protocol == PROTOCOL then
                     handleMessage(senderId, message)
+                    shouldRedraw = true
                 end
+                -- Don't break - keep processing messages
 
             elseif event == "key" then
                 handleKey(p1)
@@ -499,10 +502,16 @@ local function main()
                 running = false
                 break
             end
+
+            -- Redraw if we got new data
+            if shouldRedraw then
+                draw()
+                shouldRedraw = false
+            end
         end
 
-        -- Periodic refresh request
-        if os.epoch("utc") - lastUpdate > 5000 then
+        -- Periodic refresh request - more frequent
+        if os.epoch("utc") - lastUpdate > 3000 then
             registerWithTurtles()
             lastUpdate = os.epoch("utc")
         end

@@ -20,14 +20,17 @@ net.listeners = {}  -- Registered pocket computers
 net.messagesSent = 0
 net.messagesReceived = 0
 
--- Debug logging
+-- Other turtles (for collision avoidance)
+net.otherTurtles = {}  -- {[id] = {pos={x,y,z}, facing=0, timestamp=0}}
+net.collisionEnabled = true
+
+-- Debug logging (file only - no screen output)
 local function debugLog(message)
     if not net.config.debug then return end
     local timestamp = os.epoch("utc")
     local logLine = string.format("[%d] [NET] %s", timestamp, message)
-    print(logLine)
 
-    -- Also write to file
+    -- Write to file only (not screen)
     local f = fs.open("net_debug.log", "a")
     if f then
         f.writeLine(logLine)
@@ -173,6 +176,7 @@ function net.checkCommands()
         if message.type == "command" then
             debugLog("checkCommands: Command received: " .. tostring(message.action))
             return message
+
         elseif message.type == "register" then
             -- Pocket computer registering
             debugLog("checkCommands: Pocket computer registering: " .. tostring(message.name))
@@ -188,6 +192,10 @@ function net.checkCommands()
                 turtle_name = net.config.turtle_name,
             }, net.config.protocol)
             debugLog("checkCommands: Sent registration ack to " .. tostring(senderId))
+
+        elseif message.type == "turtle_position" then
+            -- Another turtle broadcasting its position
+            net.handleTurtlePosition(senderId, message)
         end
     end
 
@@ -269,7 +277,127 @@ function net.getStats()
         turtle_id = net.config.turtle_id,
         turtle_name = net.config.turtle_name,
         listeners = net.listeners,
+        other_turtles = net.otherTurtles,
     }
+end
+
+-- ============================================
+-- TURTLE-TO-TURTLE COLLISION AVOIDANCE
+-- ============================================
+
+-- Broadcast my position to other turtles
+function net.broadcastMyPosition(pos, facing)
+    if not net.connected then return false end
+
+    local message = {
+        type = "turtle_position",
+        turtle_id = net.config.turtle_id,
+        turtle_name = net.config.turtle_name,
+        pos = pos,
+        facing = facing,
+        timestamp = os.epoch("utc"),
+    }
+
+    rednet.broadcast(message, net.config.protocol)
+    debugLog("Broadcast position: " .. pos.x .. "," .. pos.y .. "," .. pos.z)
+    return true
+end
+
+-- Process incoming turtle position (called from checkCommands)
+function net.handleTurtlePosition(senderId, message)
+    if senderId == net.config.turtle_id then return end  -- Ignore self
+
+    net.otherTurtles[senderId] = {
+        id = senderId,
+        name = message.turtle_name,
+        pos = message.pos,
+        facing = message.facing,
+        timestamp = message.timestamp,
+    }
+    debugLog("Received position from turtle " .. senderId .. ": " ..
+        message.pos.x .. "," .. message.pos.y .. "," .. message.pos.z)
+end
+
+-- Clean up old turtle positions (not heard from in 30 seconds)
+function net.cleanupOldPositions()
+    local now = os.epoch("utc")
+    local timeout = 30000  -- 30 seconds
+
+    for id, data in pairs(net.otherTurtles) do
+        if now - data.timestamp > timeout then
+            debugLog("Removing stale turtle " .. id)
+            net.otherTurtles[id] = nil
+        end
+    end
+end
+
+-- Check if a position is occupied by another turtle
+function net.isPositionOccupied(x, y, z)
+    if not net.collisionEnabled then return false end
+
+    net.cleanupOldPositions()
+
+    for id, data in pairs(net.otherTurtles) do
+        if data.pos and
+           data.pos.x == x and
+           data.pos.y == y and
+           data.pos.z == z then
+            debugLog("Position " .. x .. "," .. y .. "," .. z .. " occupied by turtle " .. id)
+            return true, id
+        end
+    end
+    return false, nil
+end
+
+-- Check if moving to a position would cause collision
+-- Returns: safe (bool), blocking_turtle_id (or nil)
+function net.checkMoveCollision(currentPos, facing, direction)
+    if not net.collisionEnabled then return true, nil end
+
+    local targetX, targetY, targetZ = currentPos.x, currentPos.y, currentPos.z
+
+    -- Calculate target position based on direction
+    if direction == "forward" then
+        if facing == 0 then targetZ = targetZ - 1      -- North
+        elseif facing == 1 then targetX = targetX + 1  -- East
+        elseif facing == 2 then targetZ = targetZ + 1  -- South
+        elseif facing == 3 then targetX = targetX - 1  -- West
+        end
+    elseif direction == "back" then
+        if facing == 0 then targetZ = targetZ + 1
+        elseif facing == 1 then targetX = targetX - 1
+        elseif facing == 2 then targetZ = targetZ - 1
+        elseif facing == 3 then targetX = targetX + 1
+        end
+    elseif direction == "up" then
+        targetY = targetY + 1
+    elseif direction == "down" then
+        targetY = targetY - 1
+    end
+
+    local occupied, blockerId = net.isPositionOccupied(targetX, targetY, targetZ)
+    return not occupied, blockerId
+end
+
+-- Wait for position to clear (with timeout)
+function net.waitForClear(x, y, z, maxWait)
+    maxWait = maxWait or 10  -- Default 10 seconds
+
+    local startTime = os.epoch("utc")
+    while os.epoch("utc") - startTime < maxWait * 1000 do
+        -- Check for new position updates
+        net.checkCommands()
+
+        if not net.isPositionOccupied(x, y, z) then
+            debugLog("Position " .. x .. "," .. y .. "," .. z .. " is now clear")
+            return true
+        end
+
+        sleep(0.5 + math.random() * 0.5)  -- Random delay to prevent deadlock
+    end
+
+    debugLog("Timeout waiting for position " .. x .. "," .. y .. "," .. z)
+    return false
 end
 
 return net

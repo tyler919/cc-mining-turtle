@@ -1,5 +1,5 @@
 {
-    "version": "1.1.0",
+    "version": "1.3.2",
     "date": "2025-01-09",
     "turtle_files": [
         "nav.lua",
@@ -16,5 +16,5 @@
         "monitor.lua",
         "exportlog.lua"
     ],
-    "changelog": "Auto-refuel fix, debug logging, compact UI, log export tool"
+    "changelog": "Turtle collision avoidance, 3x3 strip mine, fixed debug print bug, fixed multi-turtle display"
 }

@@ -1,5 +1,5 @@
 -- Navigation Module for Mining Turtle
--- Handles GPS, dead reckoning, and movement
+-- Handles GPS, dead reckoning, movement, and collision avoidance
 
 local nav = {}
 
@@ -20,8 +20,54 @@ local facingNames = {"North", "East", "South", "West"}
 -- Statistics
 nav.stats = {
     blocks_moved = 0,
-    turns = 0
+    turns = 0,
+    collision_waits = 0
 }
+
+-- Network module reference (set by main)
+nav.net = nil
+
+-- Set network module for collision avoidance
+function nav.setNet(netModule)
+    nav.net = netModule
+end
+
+-- Broadcast position after moving
+local function broadcastPosition()
+    if nav.net and nav.net.broadcastMyPosition then
+        nav.net.broadcastMyPosition(nav.pos, nav.facing)
+    end
+end
+
+-- Check collision before moving
+local function checkCollision(direction)
+    if not nav.net or not nav.net.checkMoveCollision then
+        return true, nil  -- No net module, assume safe
+    end
+    return nav.net.checkMoveCollision(nav.pos, nav.facing, direction)
+end
+
+-- Wait for collision to clear
+local function waitForCollisionClear(direction)
+    if not nav.net then return true end
+
+    local targetX, targetY, targetZ = nav.pos.x, nav.pos.y, nav.pos.z
+    local dir = directions[nav.facing]
+
+    if direction == "forward" then
+        targetX = targetX + dir.x
+        targetZ = targetZ + dir.z
+    elseif direction == "back" then
+        targetX = targetX - dir.x
+        targetZ = targetZ - dir.z
+    elseif direction == "up" then
+        targetY = targetY + 1
+    elseif direction == "down" then
+        targetY = targetY - 1
+    end
+
+    return nav.net.waitForClear(targetX, targetY, targetZ, 10)
+end
 
 -- Initialize position (try GPS first, fallback to manual)
 function nav.init(manualPos, manualFacing)
@@ -74,8 +120,17 @@ function nav.determineFacing()
     return true
 end
 
--- Movement functions with position tracking
+-- Movement functions with position tracking and collision avoidance
 function nav.forward()
+    -- Check for turtle collision first
+    local safe, blockerId = checkCollision("forward")
+    if not safe then
+        nav.stats.collision_waits = nav.stats.collision_waits + 1
+        if not waitForCollisionClear("forward") then
+            return false  -- Timeout waiting for other turtle
+        end
+    end
+
     local tries = 0
     while not turtle.forward() do
         if turtle.detect() then
@@ -94,21 +149,43 @@ function nav.forward()
     nav.pos.x = nav.pos.x + dir.x
     nav.pos.z = nav.pos.z + dir.z
     nav.stats.blocks_moved = nav.stats.blocks_moved + 1
+
+    -- Broadcast new position to other turtles
+    broadcastPosition()
     return true
 end
 
 function nav.back()
+    -- Check for turtle collision first
+    local safe, blockerId = checkCollision("back")
+    if not safe then
+        nav.stats.collision_waits = nav.stats.collision_waits + 1
+        if not waitForCollisionClear("back") then
+            return false
+        end
+    end
+
     if turtle.back() then
         local dir = directions[nav.facing]
         nav.pos.x = nav.pos.x - dir.x
         nav.pos.z = nav.pos.z - dir.z
         nav.stats.blocks_moved = nav.stats.blocks_moved + 1
+        broadcastPosition()
         return true
     end
     return false
 end
 
 function nav.up()
+    -- Check for turtle collision first
+    local safe, blockerId = checkCollision("up")
+    if not safe then
+        nav.stats.collision_waits = nav.stats.collision_waits + 1
+        if not waitForCollisionClear("up") then
+            return false
+        end
+    end
+
     local tries = 0
     while not turtle.up() do
         if turtle.detectUp() then
@@ -124,10 +201,20 @@ function nav.up()
 
     nav.pos.y = nav.pos.y + 1
     nav.stats.blocks_moved = nav.stats.blocks_moved + 1
+    broadcastPosition()
     return true
 end
 
 function nav.down()
+    -- Check for turtle collision first
+    local safe, blockerId = checkCollision("down")
+    if not safe then
+        nav.stats.collision_waits = nav.stats.collision_waits + 1
+        if not waitForCollisionClear("down") then
+            return false
+        end
+    end
+
     local tries = 0
     while not turtle.down() do
         if turtle.detectDown() then
@@ -143,6 +230,7 @@ function nav.down()
 
     nav.pos.y = nav.pos.y - 1
     nav.stats.blocks_moved = nav.stats.blocks_moved + 1
+    broadcastPosition()
     return true
 end
 
