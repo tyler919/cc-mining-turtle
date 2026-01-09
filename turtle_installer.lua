@@ -338,10 +338,24 @@ function fuel.refuelFromChest(targetLevel)
     return turtle.getFuelLevel() - startLevel
 end
 
+function fuel.countFuelItems()
+    local count = 0
+    for i = 1, 16 do
+        local item = turtle.getItemDetail(i)
+        if item then
+            turtle.select(i)
+            if turtle.refuel(0) then count = count + turtle.getItemCount(i) end
+        end
+    end
+    turtle.select(1)
+    return count
+end
+
 function fuel.getStats()
     return {
         current = turtle.getFuelLevel(), limit = turtle.getFuelLimit(),
-        percent = fuel.getPercent(), is_low = fuel.isLow(), is_critical = fuel.isCritical()
+        percent = fuel.getPercent(), is_low = fuel.isLow(), is_critical = fuel.isCritical(),
+        fuel_items = fuel.countFuelItems()
     }
 end
 
@@ -774,10 +788,17 @@ local function testSystems()
     term.clear()
     term.setCursorPos(1, 1)
     print("=== System Test ===")
-    print("Fuel: " .. turtle.getFuelLevel())
+    local fuelLevel = turtle.getFuelLevel()
+    print("Fuel: " .. fuelLevel .. "/" .. turtle.getFuelLimit())
+    local fuelItems = fuel.countFuelItems and fuel.countFuelItems() or 0
+    print("Fuel Items: " .. fuelItems .. " (coal/etc)")
+    if fuelLevel == 0 then print("!! NO FUEL - Use 'refuel' !!") end
     print("Empty Slots: " .. inv.emptySlots())
     print("Position: " .. nav.pos.x .. ", " .. nav.pos.y .. ", " .. nav.pos.z)
     if config.use_network and net.init() then print("Network: Connected") else print("Network: Off") end
+    local x, y, z = gps.locate(2)
+    if x then print("GPS: " .. x .. ", " .. y .. ", " .. z)
+    else print("GPS: Not available (using dead-reckoning)") end
     print("")
     print("Press any key...")
     os.pullEvent("key")
@@ -786,6 +807,23 @@ end
 local function startMining(mode)
     term.clear()
     term.setCursorPos(1, 1)
+
+    local fuelLevel = turtle.getFuelLevel()
+    if fuelLevel == 0 then
+        print("ERROR: No fuel!")
+        print("")
+        print("Put coal in inventory and run:")
+        print("  refuel all")
+        print("")
+        print("Press any key...")
+        os.pullEvent("key")
+        return
+    elseif fuelLevel < 100 then
+        print("WARNING: Low fuel (" .. fuelLevel .. ")")
+        print("Continue anyway? (y/n)")
+        if read():lower() ~= "y" then return end
+    end
+
     print("Starting " .. mode .. " mining...")
     print("Press Ctrl+T to stop")
     nav.init()
