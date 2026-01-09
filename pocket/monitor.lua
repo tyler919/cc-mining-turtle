@@ -2,16 +2,40 @@
 -- Displays real-time stats and allows remote control
 
 local PROTOCOL = "MINING_NET"
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
+
+-- Debug configuration
+local DEBUG = true
+local debugLines = {}
 
 -- State
 local turtles = {}  -- Connected turtles
+local turtleOrder = {}  -- Ordered list of turtle IDs for consistent selection
 local selectedTurtle = nil
 local running = true
 local lastUpdate = 0
+local messagesReceived = 0
 
 -- Screen dimensions
 local width, height = term.getSize()
+
+-- Debug logging
+local function debugLog(message)
+    if not DEBUG then return end
+    local timestamp = os.epoch("utc")
+    local logLine = string.format("[%d] %s", timestamp, message)
+    table.insert(debugLines, logLine)
+    -- Keep only last 50 lines
+    while #debugLines > 50 do
+        table.remove(debugLines, 1)
+    end
+    -- Write to file
+    local f = fs.open("monitor_debug.log", "a")
+    if f then
+        f.writeLine(logLine)
+        f.close()
+    end
+end
 
 -- Colors
 local colors_available = term.isColor()
@@ -24,22 +48,39 @@ end
 
 -- Initialize modem
 local function initModem()
+    debugLog("Initializing modem...")
     local sides = {"left", "right", "top", "bottom", "front", "back"}
     for _, side in ipairs(sides) do
-        if peripheral.getType(side) == "modem" then
+        local pType = peripheral.getType(side)
+        debugLog("Checking side " .. side .. ": " .. tostring(pType))
+        if pType == "modem" then
             rednet.open(side)
+            debugLog("SUCCESS: Modem opened on " .. side)
+            debugLog("My ID: " .. os.getComputerID())
+            debugLog("Protocol: " .. PROTOCOL)
             return true
         end
     end
+    debugLog("FAILED: No modem found")
     return false
 end
 
 -- Register with turtles
 local function registerWithTurtles()
+    debugLog("Broadcasting registration request...")
     rednet.broadcast({
         type = "register",
         name = os.getComputerLabel() or ("Pocket_" .. os.getComputerID()),
     }, PROTOCOL)
+end
+
+-- Add turtle to ordered list if not present
+local function ensureTurtleOrder(id)
+    for _, existingId in ipairs(turtleOrder) do
+        if existingId == id then return end
+    end
+    table.insert(turtleOrder, id)
+    debugLog("Added turtle ID " .. id .. " to order list (total: " .. #turtleOrder .. ")")
 end
 
 -- Send command to selected turtle
@@ -87,10 +128,8 @@ local function drawHeader()
     term.clearLine()
     term.write(" Mining Monitor v" .. VERSION)
 
-    -- Draw turtle count
-    local count = 0
-    for _ in pairs(turtles) do count = count + 1 end
-    local countStr = " [" .. count .. "]"
+    -- Draw turtle count from ordered list
+    local countStr = " [" .. #turtleOrder .. "]"
     term.setCursorPos(width - #countStr + 1, 1)
     term.write(countStr)
 end
@@ -102,46 +141,54 @@ local function drawTurtleList()
     term.write("Select Turtle:")
 
     local y = 5
-    local index = 1
-    for id, turtle in pairs(turtles) do
+    -- Use ordered list for consistent numbering
+    for index, id in ipairs(turtleOrder) do
         if y > height - 2 then break end
+        local turtle = turtles[id]
+        if turtle then
+            setColor(colors.yellow, colors.black)
+            term.setCursorPos(1, y)
+            term.write(tostring(index) .. ". ")
 
-        setColor(colors.yellow, colors.black)
-        term.setCursorPos(1, y)
-        term.write(tostring(index) .. ". ")
+            setColor(colors.white, colors.black)
+            local displayName = turtle.name or ("Turtle " .. id)
+            -- Truncate if too long
+            if #displayName > width - 5 then
+                displayName = displayName:sub(1, width - 8) .. "..."
+            end
+            term.write(displayName)
 
-        setColor(colors.white, colors.black)
-        term.write(turtle.name or ("Turtle " .. id))
+            -- Status indicator
+            local age = os.epoch("utc") - (turtle.last_seen or 0)
+            if age < 10000 then
+                setColor(colors.lime, colors.black)
+                term.write(" *")
+            elseif age < 30000 then
+                setColor(colors.orange, colors.black)
+                term.write(" ~")
+            else
+                setColor(colors.red, colors.black)
+                term.write(" ?")
+            end
 
-        -- Status indicator
-        local age = os.epoch("utc") - (turtle.last_seen or 0)
-        if age < 10000 then
-            setColor(colors.lime, colors.black)
-            term.write(" *")
-        elseif age < 30000 then
-            setColor(colors.orange, colors.black)
-            term.write(" ~")
-        else
-            setColor(colors.red, colors.black)
-            term.write(" ?")
+            y = y + 1
         end
-
-        y = y + 1
-        index = index + 1
     end
 
-    if index == 1 then
+    if #turtleOrder == 0 then
         setColor(colors.gray, colors.black)
         term.setCursorPos(1, 5)
         term.write("No turtles found...")
         term.setCursorPos(1, 7)
         term.write("Waiting for signal...")
+        term.setCursorPos(1, 9)
+        term.write("Msgs received: " .. messagesReceived)
     end
 
     -- Instructions
     setColor(colors.gray, colors.black)
     term.setCursorPos(1, height)
-    term.write("[1-9] Select  [R] Refresh")
+    term.write("[1-9]Select [R]Refresh [L]Log")
 end
 
 -- Draw turtle details
@@ -293,18 +340,26 @@ end
 
 -- Handle incoming messages
 local function handleMessage(senderId, message)
-    if type(message) ~= "table" then return end
+    if type(message) ~= "table" then
+        debugLog("Received non-table message from " .. tostring(senderId))
+        return
+    end
 
+    messagesReceived = messagesReceived + 1
     local msgType = message.type
+    debugLog("MSG #" .. messagesReceived .. " from ID:" .. tostring(senderId) .. " type:" .. tostring(msgType) .. " name:" .. tostring(message.turtle_name))
 
     if msgType == "status" or msgType == "presence" then
         -- Update turtle info
-        if not turtles[senderId] then
+        local isNew = not turtles[senderId]
+        if isNew then
             turtles[senderId] = {id = senderId}
+            debugLog("NEW TURTLE DISCOVERED: ID " .. senderId)
         end
+        ensureTurtleOrder(senderId)
 
         local t = turtles[senderId]
-        t.name = message.turtle_name
+        t.name = message.turtle_name or t.name
         t.last_seen = os.epoch("utc")
 
         if message.data then
@@ -313,12 +368,16 @@ local function handleMessage(senderId, message)
             t.inventory = message.data.inv
             t.stats = message.data.stats
             t.message = message.data.message
+            debugLog("Updated turtle " .. senderId .. " with status data")
         end
 
     elseif msgType == "stats" then
         if turtles[senderId] then
             turtles[senderId].stats = message.stats
             turtles[senderId].last_seen = os.epoch("utc")
+            debugLog("Updated stats for turtle " .. senderId)
+        else
+            debugLog("Received stats from unknown turtle " .. senderId)
         end
 
     elseif msgType == "position" then
@@ -335,13 +394,25 @@ local function handleMessage(senderId, message)
         end
 
     elseif msgType == "alert" then
-        if turtles[senderId] then
-            turtles[senderId].last_alert = message
-            turtles[senderId].last_seen = os.epoch("utc")
+        if not turtles[senderId] then
+            turtles[senderId] = {id = senderId}
+            ensureTurtleOrder(senderId)
         end
+        turtles[senderId].last_alert = message
+        turtles[senderId].last_seen = os.epoch("utc")
+        debugLog("ALERT from turtle " .. senderId .. ": " .. tostring(message.message))
         -- Flash alert on screen
         drawAlert(message)
         sleep(2)
+
+    elseif msgType == "registered" then
+        debugLog("Registration acknowledged by turtle " .. senderId .. " (" .. tostring(message.turtle_name) .. ")")
+        if not turtles[senderId] then
+            turtles[senderId] = {id = senderId, name = message.turtle_name}
+            ensureTurtleOrder(senderId)
+        end
+    else
+        debugLog("Unknown message type: " .. tostring(msgType))
     end
 end
 
@@ -350,36 +421,55 @@ local function handleKey(key)
     if selectedTurtle then
         -- Commands for selected turtle
         if key == keys.b or key == keys.backspace then
+            debugLog("Deselecting turtle")
             selectedTurtle = nil
         elseif key == keys.s then
+            debugLog("Sending STOP command")
             sendCommand("stop")
         elseif key == keys.p then
+            debugLog("Sending PAUSE command")
             sendCommand("pause")
         elseif key == keys.r then
+            debugLog("Requesting status update")
             sendCommand("status")
         elseif key == keys.h then
+            debugLog("Sending RETURN HOME command")
             sendCommand("return_home")
         elseif key == keys.d then
+            debugLog("Sending DUMP command")
             sendCommand("dump")
         elseif key == keys.f then
+            debugLog("Sending REFUEL command")
             sendCommand("refuel")
         end
     else
-        -- Turtle selection
+        -- Turtle selection using ordered list
         if key >= keys.one and key <= keys.nine then
             local index = key - keys.one + 1
-            local i = 1
-            for id, turtle in pairs(turtles) do
-                if i == index then
-                    selectedTurtle = {id = id}
-                    break
-                end
-                i = i + 1
+            if index <= #turtleOrder then
+                local id = turtleOrder[index]
+                selectedTurtle = {id = id}
+                debugLog("Selected turtle #" .. index .. " (ID: " .. id .. ")")
+            else
+                debugLog("No turtle at index " .. index .. " (have " .. #turtleOrder .. " turtles)")
             end
         elseif key == keys.r then
+            debugLog("Manual refresh requested")
             registerWithTurtles()
         elseif key == keys.q then
+            debugLog("Quit requested")
             running = false
+        elseif key == keys.l then
+            -- Debug: show log
+            term.clear()
+            term.setCursorPos(1, 1)
+            print("=== DEBUG LOG ===")
+            local startLine = math.max(1, #debugLines - height + 3)
+            for i = startLine, #debugLines do
+                print(debugLines[i]:sub(1, width))
+            end
+            print("Press any key...")
+            os.pullEvent("key")
         end
     end
 end

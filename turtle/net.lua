@@ -10,31 +10,57 @@ net.config = {
     turtle_id = os.getComputerID(),
     turtle_name = os.getComputerLabel() or ("Turtle_" .. os.getComputerID()),
     broadcast_interval = 5,  -- Seconds between status broadcasts
+    debug = true,  -- Enable debug logging
 }
 
 -- State
 net.connected = false
 net.modemSide = nil
 net.listeners = {}  -- Registered pocket computers
+net.messagesSent = 0
+net.messagesReceived = 0
+
+-- Debug logging
+local function debugLog(message)
+    if not net.config.debug then return end
+    local timestamp = os.epoch("utc")
+    local logLine = string.format("[%d] [NET] %s", timestamp, message)
+    print(logLine)
+
+    -- Also write to file
+    local f = fs.open("net_debug.log", "a")
+    if f then
+        f.writeLine(logLine)
+        f.close()
+    end
+end
 
 -- Find and open modem
 function net.init()
+    debugLog("Initializing network...")
     -- Find wireless modem
     local sides = {"left", "right", "top", "bottom", "front", "back"}
     for _, side in ipairs(sides) do
-        if peripheral.getType(side) == "modem" then
+        local pType = peripheral.getType(side)
+        debugLog("Checking side " .. side .. ": " .. tostring(pType))
+        if pType == "modem" then
             local modem = peripheral.wrap(side)
             if modem.isWireless() then
                 net.modemSide = side
                 rednet.open(side)
                 net.connected = true
-                print("[NET] Wireless modem found on " .. side)
+                debugLog("SUCCESS: Wireless modem found on " .. side)
+                debugLog("Turtle ID: " .. net.config.turtle_id)
+                debugLog("Turtle Name: " .. net.config.turtle_name)
+                debugLog("Protocol: " .. net.config.protocol)
                 return true
+            else
+                debugLog("Modem on " .. side .. " is NOT wireless")
             end
         end
     end
 
-    print("[NET] No wireless modem found!")
+    debugLog("FAILED: No wireless modem found!")
     return false
 end
 
@@ -48,7 +74,10 @@ end
 
 -- Send status update to all listeners
 function net.sendStatus(data)
-    if not net.connected then return false end
+    if not net.connected then
+        debugLog("sendStatus: NOT CONNECTED, skipping")
+        return false
+    end
 
     local message = {
         type = "status",
@@ -59,6 +88,8 @@ function net.sendStatus(data)
     }
 
     rednet.broadcast(message, net.config.protocol)
+    net.messagesSent = net.messagesSent + 1
+    debugLog("sendStatus: Broadcast #" .. net.messagesSent .. " sent (type=status)")
     return true
 end
 
@@ -136,10 +167,15 @@ function net.checkCommands()
     local senderId, message, protocol = rednet.receive(net.config.protocol, 0)
 
     if message and type(message) == "table" then
+        net.messagesReceived = net.messagesReceived + 1
+        debugLog("checkCommands: Received msg #" .. net.messagesReceived .. " from ID " .. tostring(senderId) .. " type=" .. tostring(message.type))
+
         if message.type == "command" then
+            debugLog("checkCommands: Command received: " .. tostring(message.action))
             return message
         elseif message.type == "register" then
             -- Pocket computer registering
+            debugLog("checkCommands: Pocket computer registering: " .. tostring(message.name))
             net.listeners[senderId] = {
                 id = senderId,
                 name = message.name or ("Pocket_" .. senderId),
@@ -151,6 +187,7 @@ function net.checkCommands()
                 turtle_id = net.config.turtle_id,
                 turtle_name = net.config.turtle_name,
             }, net.config.protocol)
+            debugLog("checkCommands: Sent registration ack to " .. tostring(senderId))
         end
     end
 
@@ -200,7 +237,10 @@ end
 
 -- Broadcast discovery message
 function net.broadcastPresence()
-    if not net.connected then return false end
+    if not net.connected then
+        debugLog("broadcastPresence: NOT CONNECTED, skipping")
+        return false
+    end
 
     local message = {
         type = "presence",
@@ -210,6 +250,8 @@ function net.broadcastPresence()
     }
 
     rednet.broadcast(message, net.config.protocol)
+    net.messagesSent = net.messagesSent + 1
+    debugLog("broadcastPresence: Broadcast #" .. net.messagesSent .. " sent (I am " .. net.config.turtle_name .. " ID:" .. net.config.turtle_id .. ")")
     return true
 end
 
